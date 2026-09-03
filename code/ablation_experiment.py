@@ -132,7 +132,7 @@ def ablation_fusion(bm25_indices, bm25_scores, vec_indices, vec_scores, queries,
         b_norm = _minmax_normalize(candidates, bm25_map)
         v_norm = _minmax_normalize(candidates, vec_map)
 
-        
+
         if alpha_range > 0:
             b_margin = _compute_margin(b_norm, 5)
             v_margin = _compute_margin(v_norm, 5)
@@ -141,14 +141,14 @@ def ablation_fusion(bm25_indices, bm25_scores, vec_indices, vec_scores, queries,
         else:
             alpha = alpha_base
 
-        
+
         if gamma > 0:
             bigram_overlap = compute_query_bigram_overlap(queries[i], doc_bigrams)
             L = np.array([bigram_overlap[c] if c < len(bigram_overlap) else 0 for c in candidates])
         else:
             L = np.zeros(len(candidates))
 
-        
+
         if delta > 0:
             P = b_norm * v_norm
         else:

@@ -59,35 +59,35 @@ def lvf_fusion(bm25_indices, bm25_scores, vec_indices, vec_scores, queries, doc_
     result = np.zeros((n, top_k), dtype=np.int32)
 
     for i in range(n):
-        
+
         bm25_map = dict(zip(bm25_indices[i].tolist(), bm25_scores[i].tolist()))
         vec_map = dict(zip(vec_indices[i].tolist(), vec_scores[i].tolist()))
         candidates = list(dict.fromkeys(list(bm25_map.keys()) + list(vec_map.keys())))
-        b_norm = minmax_normalize(candidates, bm25_map)  
-        v_norm = minmax_normalize(candidates, vec_map)   
+        b_norm = minmax_normalize(candidates, bm25_map)
+        v_norm = minmax_normalize(candidates, vec_map)
 
-        
-        
-        
-        
+
+
+
+
         b_margin = compute_margin(b_norm, 5)
         v_margin = compute_margin(v_norm, 5)
         diff = b_margin - v_margin
         alpha = alpha_base + alpha_range * (1 / (1 + np.exp(-diff * alpha_scale)))
 
-        
-        
-        
+
+
+
         bigram_overlap = compute_query_bigram_overlap(queries[i], doc_bigrams)
         L = np.array([bigram_overlap[c] if c < len(bigram_overlap) else 0 for c in candidates])
 
-        
-        
-        
-        
+
+
+
+
         P = b_norm * v_norm
 
-        
+
         final = alpha * b_norm + (1 - alpha) * v_norm + gamma * L - delta * P
         sorted_idx = np.argsort(-final)
         result[i] = [candidates[j] for j in sorted_idx[:top_k]]

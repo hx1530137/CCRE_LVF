@@ -20,7 +20,7 @@ LORA_DROPOUT = 0.05
 LORA_TARGETS = ['q_proj', 'k_proj', 'v_proj', 'o_proj']
 LR = 2e-4
 BATCH_SIZE = 2
-ACCUM_STEPS = 16      
+ACCUM_STEPS = 16
 EPOCHS = 1
 MAX_LENGTH = 512
 TEMPERATURE = 0.05
@@ -88,7 +88,7 @@ def train_epoch(model, tokenizer, train_data, val_data, device, save_path):
 
         total_loss += loss.item() * ACCUM_STEPS
 
-    
+
     if (i // BATCH_SIZE + 1) % ACCUM_STEPS != 0:
         torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
         optimizer.step()
@@ -97,7 +97,7 @@ def train_epoch(model, tokenizer, train_data, val_data, device, save_path):
     avg_train = total_loss / (len(train_data) // BATCH_SIZE + 1)
 
 
-    
+
     model.eval()
     val_loss, vcount = 0, 0
     with torch.no_grad():
