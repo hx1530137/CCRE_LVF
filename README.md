@@ -35,10 +35,10 @@ CCRE_LVF_code_release/
 │   └── CCRE_LVF_retrieval_framework.png
 ├── code/
 │   ├── lvf_algorithm.py              # Core LVF implementation and baselines
-│   ├── train_finetune.py             # LoRA fine-tuning entry point
-│   ├── run_v3_experiments.py         # Main and cross-dataset experiments
-│   ├── run_ablation.py               # LVF component ablations
-│   ├── run_supplementary.py          # Final supplementary analyses
+│   ├── train_encoder.py              # LoRA fine-tuning entry point
+│   ├── retrieval_experiment.py       # Main retrieval experiment
+│   ├── ablation_experiment.py        # LVF component ablations
+│   ├── supplementary_analysis.py     # Supplementary analyses
 │   └── evaluation.py                 # Standalone ranking evaluation
 ├── data/
 │   ├── README.md                     # Dataset access and schema
@@ -50,7 +50,7 @@ Only the core method, final experiment scripts, and essential documentation are 
 ## Environment
 
 - Python 3.10 or 3.11 is recommended.
-- CUDA is required for Qwen3-Embedding-4B LoRA training and GPU encoding.
+- CUDA is required for encoder LoRA training and GPU encoding.
 - CPU execution is sufficient for the standalone `lvf_algorithm.py` functions and small unit-style examples.
 
 Create an environment and install the dependencies:
@@ -70,7 +70,7 @@ The dataset is not redistributed in this repository. Download it from the follow
 
 **Dataset:** <https://huggingface.co/datasets/YOUR-ORG/CCRE-LVF-Dataset>
 
-The experiments also require the relevant base and adapted checkpoints, including Qwen3-Embedding-4B and the LoRA adapter used in the paper. Model paths are defined near the top of the experiment scripts. Replace the original local paths with paths on your machine, or expose an equivalent directory structure before running.
+The experiments require a base encoder and an adapted checkpoint. Model paths are defined near the top of the experiment scripts as placeholders. Replace them with paths on your machine, or expose an equivalent directory structure before running.
 
 ## Quick Start: Core LVF
 
@@ -84,8 +84,6 @@ documents = ["古文文档一", "古文文档二"]
 queries = ["现代文查询"]
 doc_bigrams = precompute_bigrams(documents)
 
-# bm25_indices, bm25_scores, vec_indices, and vec_scores should be
-# NumPy arrays with shape [number_of_queries, retrieved_k].
 ranked = lvf_fusion(
     bm25_indices, bm25_scores,
     vec_indices, vec_scores,
@@ -105,17 +103,17 @@ The public API also includes `was_hybrid` (fixed-alpha weighted fusion) and `rrf
 After downloading the data and checkpoints and updating the path constants in the scripts:
 
 ```bash
-# Train the CCRE LoRA adapter (GPU; full training set)
-python code/train_finetune.py --modes finetune
+# Train the encoder adapter (GPU)
+python code/train_encoder.py
 
-# Main test-set and cross-dataset evaluation
-python code/run_v3_experiments.py
+# Main retrieval experiment
+python code/retrieval_experiment.py
 
-# LVF component ablations
-python code/run_ablation.py
+# LVF ablation experiment
+python code/ablation_experiment.py
 
-# Supplementary metrics and analyses
-python code/run_supplementary.py
+# Supplementary analysis
+python code/supplementary_analysis.py
 
 # Evaluate saved rankings (JSON or NPY)
 python code/evaluation.py \
@@ -125,7 +123,7 @@ python code/evaluation.py \
   --output metrics.json
 ```
 
-Most experiment scripts read precomputed embedding caches and write JSON summaries to the configured output directory. The scripts print the active dataset, model, seed, and output paths at runtime. For a clean public release, replace the original absolute paths at the top of each script with repository-relative paths or command-line configuration.
+The experiment scripts read JSON/JSONL data and optional embedding caches, then write JSON summaries to the configured output directory. Set `CCRE_LVF_ROOT` or override the command-line paths before running.
 
 ## Experimental Defaults
 

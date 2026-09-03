@@ -1,5 +1,3 @@
-"""Ranking metrics used in the CCRE-LVF experiments."""
-
 import argparse
 import json
 from pathlib import Path
@@ -8,7 +6,6 @@ import numpy as np
 
 
 def _relevant_sets(relevant_indices):
-    """Convert relevance labels to one set per query."""
     sets = []
     for item in relevant_indices:
         if np.isscalar(item):
@@ -19,7 +16,6 @@ def _relevant_sets(relevant_indices):
 
 
 def recall_at_k(rankings, relevant_indices, k):
-    """Compute macro-averaged Recall@K."""
     relevant = _relevant_sets(relevant_indices)
     values = []
     for ranked, target in zip(rankings, relevant):
@@ -29,7 +25,6 @@ def recall_at_k(rankings, relevant_indices, k):
 
 
 def mean_reciprocal_rank(rankings, relevant_indices):
-    """Compute mean reciprocal rank."""
     relevant = _relevant_sets(relevant_indices)
     values = []
     for ranked, target in zip(rankings, relevant):
@@ -42,7 +37,6 @@ def mean_reciprocal_rank(rankings, relevant_indices):
 
 
 def ndcg_at_k(rankings, relevant_indices, k):
-    """Compute macro-averaged binary nDCG@K."""
     relevant = _relevant_sets(relevant_indices)
     values = []
     for ranked, target in zip(rankings, relevant):
@@ -58,7 +52,6 @@ def ndcg_at_k(rankings, relevant_indices, k):
 
 
 def evaluate(rankings, relevant_indices, k_values=(1, 5, 10)):
-    """Evaluate rankings with the paper's retrieval metrics."""
     if len(rankings) != len(relevant_indices):
         raise ValueError("Rankings and relevance labels must contain the same number of queries.")
     metrics = {f"R@{k}": recall_at_k(rankings, relevant_indices, k) for k in k_values}
@@ -69,7 +62,6 @@ def evaluate(rankings, relevant_indices, k_values=(1, 5, 10)):
 
 
 def _load(path):
-    """Load a JSON or NumPy array."""
     path = Path(path)
     if path.suffix.lower() == ".npy":
         return np.load(path, allow_pickle=True)
@@ -79,12 +71,11 @@ def _load(path):
 
 def main():
     parser = argparse.ArgumentParser(description="Evaluate ranked document indices.")
-    parser.add_argument("--rankings", required=True, help="JSON or NPY ranked document indices")
-    parser.add_argument("--relevant", required=True, help="JSON or NPY relevant document indices")
+    parser.add_argument("--rankings", required=True)
+    parser.add_argument("--relevant", required=True)
     parser.add_argument("--k", nargs="+", type=int, default=[1, 5, 10])
-    parser.add_argument("--output", help="Optional output JSON path")
+    parser.add_argument("--output")
     args = parser.parse_args()
-
     metrics = evaluate(_load(args.rankings), _load(args.relevant), tuple(args.k))
     text = json.dumps(metrics, ensure_ascii=False, indent=2)
     print(text)

@@ -5,10 +5,10 @@ This directory contains only the core method and the final experiment scripts ne
 | Script | Role |
 | --- | --- |
 | `lvf_algorithm.py` | Core LVF formula, normalization, margin, bigram verification, and baselines |
-| `train_finetune.py` | Qwen3-Embedding-4B LoRA fine-tuning |
-| `run_v3_experiments.py` | Main test-set and cross-dataset experiments used for the v3 results |
-| `run_ablation.py` | Fixed-alpha, adaptive-alpha, lexical, suspicion, and full LVF ablations |
-| `run_supplementary.py` | Metrics, significance, efficiency, sensitivity, RRF-k, and case-study analyses |
+| `train_encoder.py` | Encoder LoRA fine-tuning |
+| `retrieval_experiment.py` | Main retrieval experiment |
+| `ablation_experiment.py` | Fixed-alpha, adaptive-alpha, lexical, suspicion, and full LVF ablations |
+| `supplementary_analysis.py` | Metrics, significance, efficiency, sensitivity, RRF-k, and case-study analyses |
 | `evaluation.py` | Standalone Recall@K, MRR, and nDCG@K evaluation |
 
-The experiment scripts currently contain absolute path constants inherited from the original experiment environment. Update those constants before running them on another machine.
+The experiment scripts use placeholder paths under `CCRE_LVF_ROOT`. Set that environment variable or replace the placeholder paths before running them.

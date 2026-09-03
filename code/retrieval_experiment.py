@@ -1,4 +1,3 @@
-'Main and cross-dataset retrieval experiments.'
 import json, os, time, gc, math
 import torch
 import numpy as np
@@ -7,42 +6,38 @@ os.environ['TRITON_DISABLE_CUDA_KERNEL'] = '1'
 os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'
 
 
-MODELS_DIR   = '/home/huxin/Documents/trae_projects/sikuBERT/models'
-BASE_4B      = f'{MODELS_DIR}/Qwen3-Embedding-4B'
-FINETUNE_LORA_2K   = f'{MODELS_DIR}/qwen3-emb-finetune-4b-full'
-FINETUNE_LORA_V3   = f'{MODELS_DIR}/qwen3-emb-finetune-4b-full-v3'
-BGE_M3       = f'{MODELS_DIR}/bge-m3'
+ROOT_DIR = os.environ.get('CCRE_LVF_ROOT', 'path/to/project')
+MODELS_DIR = os.path.join(ROOT_DIR, 'models')
+DATA_DIR = os.path.join(ROOT_DIR, 'data')
+OUTPUT_DIR = os.path.join(ROOT_DIR, 'outputs')
+CACHE_DIR = os.path.join(ROOT_DIR, 'cache')
+BASE_MODEL = os.path.join(MODELS_DIR, 'base-model')
+ADAPTED_MODEL = os.path.join(MODELS_DIR, 'adapted-model')
 
 
-TEST_DATA    = '/home/huxin/Documents/trae_projects/sikuBERT/sanguo_test_filtered_final.json'
-SHIJI_DATA   = '/home/huxin/Documents/trae_projects/sikuBERT/史记合并-with-prompt-api-response-extracted-train.json'
-HANSHU_DATA  = '/home/huxin/Documents/trae_projects/sikuBERT/汉书合并mini-with-prompt-api-response-extracted-train.json'
-HISTORY10K   = '/home/huxin/Documents/trae_projects/sikuBERT/classical_history_retrieval_10k.json'
-
-OUTPUT_DIR   = '/home/huxin/Documents/trae_projects/sikuBERT/experiment_v3/results'
-CACHE_DIR    = '/home/huxin/Documents/trae_projects/sikuBERT/experiment_v3/cache'
+MAIN_DATA = os.path.join(DATA_DIR, 'dataset_main.json')
+EXTRA_DATA_1 = os.path.join(DATA_DIR, 'dataset_auxiliary_1.json')
+EXTRA_DATA_2 = os.path.join(DATA_DIR, 'dataset_auxiliary_2.json')
 SEED = 42
 
 
 MAIN_MODELS = [
-    ('Qwen3-4B-Base',       BASE_4B,           'hf',   512),
-    ('Finetune4B-2k',       BASE_4B,           'lora2k', 512),
-    ('Finetune4B-full-v3',  BASE_4B,           'lorav3', 512),
+    ('base_model', BASE_MODEL, 'hf', 512),
+    ('adapted_model', BASE_MODEL, 'lora', 512),
 ]
 
 
 CROSS_MODELS = [
-    ('bge-m3',              BGE_M3,            'st',    8192),
-    ('Qwen3-4B-Base',       BASE_4B,           'hf',    512),
-    ('Finetune4B-full-v3',  BASE_4B,           'lorav3', 512),
+    ('base_model', BASE_MODEL, 'hf', 512),
+    ('adapted_model', BASE_MODEL, 'lora', 512),
 ]
 
 CROSS_DATASETS = [
-    ('sanguo_test',  TEST_DATA,   1.0),
-    ('shiji',        SHIJI_DATA,   0.1),
-    ('hanshu',       HANSHU_DATA,  0.1),
-    ('history-10k',  HISTORY10K,   0.1),
+    ('dataset_main', MAIN_DATA, 1.0),
+    ('dataset_auxiliary_1', EXTRA_DATA_1, 0.1),
+    ('dataset_auxiliary_2', EXTRA_DATA_2, 0.1),
 ]
+
 
 
 def load_dataset(data_path, test_ratio=1.0, seed=42):
@@ -66,6 +61,7 @@ def load_dataset(data_path, test_ratio=1.0, seed=42):
     return queries, doc_list, positive_indices
 
 
+
 def compute_metrics(topk_indices, positive_indices, k_values=[1, 3, 5]):
     n = len(topk_indices)
     m = {}
@@ -75,6 +71,7 @@ def compute_metrics(topk_indices, positive_indices, k_values=[1, 3, 5]):
     m['MRR'] = sum(1.0 / (list(topk_indices[i]).index(positive_indices[i]) + 1)
                    for i in range(n) if positive_indices[i] in topk_indices[i]) / n
     return m
+
 
 
 def build_bm25(documents):
@@ -91,6 +88,7 @@ def build_bm25(documents):
             scores.append(sc[idx])
         return np.array(indices), np.array(scores)
     return search_batch
+
 
 
 def encode_st(model_path, max_len):
@@ -139,9 +137,9 @@ def encode_hf_lora(base_path, lora_path, max_len):
     try:
         model = PeftModel.from_pretrained(model, lora_path)
         model = model.merge_and_unload()
-        print(f'    LoRA已加载并合并: {os.path.basename(lora_path)}', flush=True)
+
     except Exception as e:
-        print(f'    [WARN] PeftModel加载失败({e}), 尝试手动加载LoRA', flush=True)
+
         import safetensors.torch
         lora_state = safetensors.torch.load_file(f'{lora_path}/adapter_model.safetensors')
         with open(f'{lora_path}/adapter_config.json') as f:
@@ -164,7 +162,7 @@ def encode_hf_lora(base_path, lora_path, max_len):
                 delta = (B @ A) * scale
                 param.data = param.data.float() + delta.to(param.data.device)
                 param.data = param.data.to(torch.float16)
-        print(f'    LoRA手动加载完成 (r={r}, alpha={alpha})', flush=True)
+
     model.eval()
     def encode(texts, batch_size=4):
         all_embs = []
@@ -188,10 +186,8 @@ def encode_factory(name, model_path, encode_type, max_len):
         return encode_st(model_path, max_len)
     elif encode_type == 'hf':
         return encode_hf_base(model_path, max_len)
-    elif encode_type == 'lora2k':
-        return encode_hf_lora(model_path, FINETUNE_LORA_2K, max_len)
-    elif encode_type == 'lorav3':
-        return encode_hf_lora(model_path, FINETUNE_LORA_V3, max_len)
+    elif encode_type == 'lora':
+        return encode_hf_lora(model_path, ADAPTED_MODEL, max_len)
     else:
         raise ValueError(f'Unknown encode_type: {encode_type}')
 
@@ -210,6 +206,7 @@ def free_mem(model, tok=None):
     torch.cuda.synchronize()
     gc.collect()
     torch.cuda.empty_cache()
+
 
 
 def vector_search(query_embs, doc_embs, top_k=100):
@@ -297,7 +294,6 @@ def rrf_fusion(bm25_idx, vec_idx, k=60, top_k=100):
 def lvf_fusion(bm25_indices, bm25_scores, vec_indices, vec_scores, queries, doc_bigrams,
                alpha_base=0.4, alpha_range=0.10, alpha_scale=20,
                gamma=0.3, delta=0.2, top_k=100):
-    'LVF: Lexical-Verified Fusion'
     n = len(bm25_indices)
     result = np.zeros((n, top_k), dtype=np.int32)
     for i in range(n):
@@ -322,6 +318,7 @@ def lvf_fusion(bm25_indices, bm25_scores, vec_indices, vec_scores, queries, doc_
     return result
 
 
+
 def evaluate_one(queries, doc_list, positive_indices, doc_bigrams,
                  bm25_idx, bm25_sc, model_name, encode_type, model_path, max_len,
                  cache_suffix):
@@ -329,121 +326,123 @@ def evaluate_one(queries, doc_list, positive_indices, doc_bigrams,
     doc_cache = f'{CACHE_DIR}/{cache_suffix}_{safe_name}_docs.npy'
     q_cache   = f'{CACHE_DIR}/{cache_suffix}_{safe_name}_queries.npy'
 
-    print(f'    加载编码器 ...', end=' ', flush=True)
+
     t0 = time.time()
     encode_fn, model, tok = encode_factory(model_name, model_path, encode_type, max_len)
-    print(f'{time.time()-t0:.1f}s', flush=True)
+
 
     if os.path.exists(doc_cache) and os.path.exists(q_cache):
-        print(f'    加载编码缓存: {safe_name}', flush=True)
+
         doc_embs = np.load(doc_cache)
         q_embs = np.load(q_cache)
     else:
-        print(f'    编码文档 ({len(doc_list)}) ...', end=' ', flush=True)
+
         t0 = time.time()
         doc_embs = encode_fn(doc_list)
-        print(f'{time.time()-t0:.1f}s', flush=True)
-        print(f'    编码查询 ({len(queries)}) ...', end=' ', flush=True)
+
+
         t0 = time.time()
         q_embs = encode_fn(queries)
-        print(f'{time.time()-t0:.1f}s', flush=True)
+
         os.makedirs(CACHE_DIR, exist_ok=True)
         np.save(doc_cache, doc_embs)
         np.save(q_cache, q_embs)
 
-    print(f'    向量检索 ...', end=' ', flush=True)
+
     vec_idx, vec_sc = vector_search(q_embs, doc_embs)
-    print('done', flush=True)
+
 
     results = {}
     m = compute_metrics(bm25_idx, positive_indices)
     results['BM25'] = m
-    print(f'    BM25           R@1={m["R@1"]:.4f} R@5={m["R@5"]:.4f} MRR={m["MRR"]:.4f}', flush=True)
+
 
     m = compute_metrics(vec_idx, positive_indices)
     results['Vector'] = m
-    print(f'    Vector         R@1={m["R@1"]:.4f} R@5={m["R@5"]:.4f} MRR={m["MRR"]:.4f}', flush=True)
+
 
     idx = rrf_fusion(bm25_idx, vec_idx)
     m = compute_metrics(idx, positive_indices)
     results['RRF'] = m
-    print(f'    RRF            R@1={m["R@1"]:.4f} R@5={m["R@5"]:.4f} MRR={m["MRR"]:.4f}', flush=True)
+
 
     idx = was_hybrid(bm25_idx, bm25_sc, vec_idx, vec_sc, alpha=0.4)
     m = compute_metrics(idx, positive_indices)
     results['WAS'] = m
-    print(f'    WAS(α=0.4)     R@1={m["R@1"]:.4f} R@5={m["R@5"]:.4f} MRR={m["MRR"]:.4f}', flush=True)
+
 
     idx = lvf_fusion(bm25_idx, bm25_sc, vec_idx, vec_sc, queries, doc_bigrams,
                      alpha_base=0.4, alpha_range=0.10, gamma=0.3, delta=0.2)
     m = compute_metrics(idx, positive_indices)
     results['LVF(Ours)'] = m
     lvf_gain = (results['LVF(Ours)']['R@1'] - results['WAS']['R@1']) * 100
-    print(f'    LVF(Ours)      R@1={m["R@1"]:.4f} R@5={m["R@5"]:.4f} MRR={m["MRR"]:.4f}  ΔR@1(WAS)={lvf_gain:+.2f}%', flush=True)
+
 
     free_mem(model, tok)
     time.sleep(3)
     return results
 
 
+
 def run_main_experiment():
-    print('\n' + '=' * 100)
-    print('实验1: 主测试集对比 (Base vs Finetune4B-2k vs Finetune4B-full-v3)')
-    print('=' * 100, flush=True)
 
-    queries, doc_list, pos_idx = load_dataset(TEST_DATA, test_ratio=1.0, seed=SEED)
-    print(f'  数据: {len(queries)} 查询, {len(doc_list)} 文档', flush=True)
 
-    print(f'  构建BM25 ...', end=' ', flush=True)
+
+
+    queries, doc_list, pos_idx = load_dataset(MAIN_DATA, test_ratio=1.0, seed=SEED)
+
+
+
     t0 = time.time()
     bm25_search = build_bm25(doc_list)
     bm25_idx, bm25_sc = bm25_search(queries)
-    print(f'{time.time()-t0:.1f}s', flush=True)
 
-    print(f'  预计算bigram ...', end=' ', flush=True)
+
+
     t0 = time.time()
     doc_bigrams = precompute_bigrams(doc_list)
-    print(f'{time.time()-t0:.1f}s', flush=True)
+
 
     all_results = {}
     for model_name, model_path, encode_type, max_len in MAIN_MODELS:
-        print(f'\n  ---- {model_name} ----', flush=True)
+
         res = evaluate_one(queries, doc_list, pos_idx, doc_bigrams,
                            bm25_idx, bm25_sc, model_name, encode_type, model_path, max_len,
-                           cache_suffix='v3_main')
+                           cache_suffix='run_main')
         all_results[model_name] = res
 
     return all_results
 
 
+
 def run_cross_dataset_experiment():
-    print('\n' + '=' * 100)
-    print('实验2: 跨数据集泛化性 (Finetune4B-full-v3)')
-    print('=' * 100, flush=True)
+
+
+
 
     all_results = {}
     for ds_name, ds_path, test_ratio in CROSS_DATASETS:
-        print(f'\n  ==== 数据集: {ds_name} ====', flush=True)
-        queries, doc_list, pos_idx = load_dataset(ds_path, test_ratio=test_ratio, seed=SEED)
-        print(f'  数据: {len(queries)} 查询, {len(doc_list)} 文档', flush=True)
 
-        print(f'  构建BM25 ...', end=' ', flush=True)
+        queries, doc_list, pos_idx = load_dataset(ds_path, test_ratio=test_ratio, seed=SEED)
+
+
+
         t0 = time.time()
         bm25_search = build_bm25(doc_list)
         bm25_idx, bm25_sc = bm25_search(queries)
-        print(f'{time.time()-t0:.1f}s', flush=True)
 
-        print(f'  预计算bigram ...', end=' ', flush=True)
+
+
         t0 = time.time()
         doc_bigrams = precompute_bigrams(doc_list)
-        print(f'{time.time()-t0:.1f}s', flush=True)
+
 
         ds_results = {}
         for model_name, model_path, encode_type, max_len in CROSS_MODELS:
-            print(f'\n  ---- {model_name} ----', flush=True)
+
             res = evaluate_one(queries, doc_list, pos_idx, doc_bigrams,
                                bm25_idx, bm25_sc, model_name, encode_type, model_path, max_len,
-                               cache_suffix=f'v3_{ds_name}')
+                               cache_suffix=f'run_{ds_name}')
             ds_results[model_name] = res
 
         all_results[ds_name] = ds_results
@@ -451,51 +450,9 @@ def run_cross_dataset_experiment():
     return all_results
 
 
+
 def print_summary(main_results, cross_results):
-    lines = []
-    lines.append('=' * 100)
-    lines.append('experiment_v3 汇总: 4B模型全量微调实验结果')
-    lines.append('=' * 100)
-
-
-    lines.append('\n表1: 主测试集 (sanguo_test, 1480查询/1023文档) - 数据量消融')
-    lines.append(f'{"模型":<22} {"方法":<12} {"R@1":>8} {"R@5":>8} {"MRR":>8} {"ΔR@1(WAS)":>12}')
-    lines.append('-' * 75)
-    methods = ['BM25', 'Vector', 'RRF', 'WAS', 'LVF(Ours)']
-    for model in main_results:
-        was_r1 = main_results[model]['WAS']['R@1']
-        for mi, method in enumerate(methods):
-            m = main_results[model][method]
-            gain = f'{(m["R@1"]-was_r1)*100:+.2f}%' if method != 'WAS' else 'baseline'
-            mark = '★' if method == 'LVF(Ours)' else ' '
-            lines.append(f'{model if mi==0 else "":<22} {method:<12} {m["R@1"]:>8.4f} {m["R@5"]:>8.4f} {m["MRR"]:>8.4f} {gain:>12} {mark}')
-        lines.append('-' * 75)
-
-
-    lines.append('\n数据量消融: Finetune4B-2k vs Finetune4B-full-v3 (Vector R@1)')
-    if 'Finetune4B-2k' in main_results and 'Finetune4B-full-v3' in main_results:
-        v2k = main_results['Finetune4B-2k']['Vector']['R@1']
-        vv3 = main_results['Finetune4B-full-v3']['Vector']['R@1']
-        base = main_results['Qwen3-4B-Base']['Vector']['R@1']
-        lines.append(f'  Base:              {base:.4f}')
-        lines.append(f'  Finetune4B-2k:     {v2k:.4f} (ΔBase={((v2k-base)*100):+.2f}%)')
-        lines.append(f'  Finetune4B-full-v3:{vv3:.4f} (ΔBase={((vv3-base)*100):+.2f}%, Δ2k={((vv3-v2k)*100):+.2f}%)')
-
-
-    lines.append('\n\n表2: 跨数据集泛化性 (LVF vs WAS, R@1)')
-    lines.append(f'{"数据集":<16} {"模型":<22} {"WAS":>8} {"LVF":>8} {"ΔR@1":>10}')
-    lines.append('-' * 70)
-    for ds_name in cross_results:
-        for model in cross_results[ds_name]:
-            was_r1 = cross_results[ds_name][model]['WAS']['R@1']
-            lvf_r1 = cross_results[ds_name][model]['LVF(Ours)']['R@1']
-            gain = (lvf_r1 - was_r1) * 100
-            lines.append(f'{ds_name:<16} {model:<22} {was_r1:>8.4f} {lvf_r1:>8.4f} {gain:>+9.2f}%')
-        lines.append('-' * 70)
-
-    summary_text = '\n'.join(lines)
-    print(summary_text, flush=True)
-    return summary_text
+    return json.dumps({'main': main_results, 'cross_dataset': cross_results}, ensure_ascii=False, indent=2)
 
 
 def main():
@@ -503,44 +460,38 @@ def main():
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     os.makedirs(CACHE_DIR, exist_ok=True)
 
-    print('=' * 100)
-    print('experiment_v3: 4B模型全量微调完整实验')
-    print(f'训练数据: 12654条 (之前2000条)')
-    print(f'新模型: Finetune4B-full-v3 (LoRA r=8, alpha=32)')
-    print(f'测试集: sanguo_test(1480) / 史记(1/10) / 汉书(1/10) / history-10k(1/10)')
-    print('=' * 100, flush=True)
 
 
+
+
+
+
+
+    
     main_results = run_main_experiment()
 
-
-    with open(f'{OUTPUT_DIR}/v3_main_results.json', 'w', encoding='utf-8') as f:
-        json.dump({
-            'description': '主测试集对比: Base vs Finetune4B-2k vs Finetune4B-full-v3',
-            'dataset': 'sanguo_test (1480查询/1023文档)',
-            'results': main_results,
-        }, f, ensure_ascii=False, indent=2)
-    print(f'\n主测试集结果已保存: {OUTPUT_DIR}/v3_main_results.json', flush=True)
+    
+    with open(f'{OUTPUT_DIR}/main_results.json', 'w', encoding='utf-8') as f:
+        json.dump({'results': main_results}, f, ensure_ascii=False, indent=2)
 
 
+    
     cross_results = run_cross_dataset_experiment()
 
-
-    with open(f'{OUTPUT_DIR}/v3_cross_dataset_results.json', 'w', encoding='utf-8') as f:
-        json.dump({
-            'description': '跨数据集泛化性: bge-m3 / Base / Finetune4B-full-v3',
-            'datasets': {'sanguo_test': '1480查询', 'shiji': '1/10', 'hanshu': '1/10', 'history-10k': '1/10'},
-            'results': cross_results,
-        }, f, ensure_ascii=False, indent=2)
-    print(f'\n跨数据集结果已保存: {OUTPUT_DIR}/v3_cross_dataset_results.json', flush=True)
+    
+    with open(f'{OUTPUT_DIR}/cross_dataset_results.json', 'w', encoding='utf-8') as f:
+        json.dump({'results': cross_results}, f, ensure_ascii=False, indent=2)
 
 
+    
     summary_text = print_summary(main_results, cross_results)
-    with open(f'{OUTPUT_DIR}/v3_summary_tables.txt', 'w', encoding='utf-8') as f:
+    with open(f'{OUTPUT_DIR}/summary.txt', 'w', encoding='utf-8') as f:
         f.write(summary_text)
-    print(f'\n汇总表格已保存: {OUTPUT_DIR}/v3_summary_tables.txt', flush=True)
 
-    print(f'\n总耗时: {(time.time()-t0_all)/60:.1f} 分钟', flush=True)
+
+
+
+    print(summary_text)
 
 
 if __name__ == '__main__':
