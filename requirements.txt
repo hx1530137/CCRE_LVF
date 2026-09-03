@@ -1,10 +1,10 @@
 numpy>=1.24
 torch>=2.1
 transformers>=4.40
+sentence-transformers>=2.7
 peft>=0.10
 accelerate>=0.28
 faiss-cpu>=1.7.4
 rank-bm25>=0.2.2
 jieba>=0.42.1
 scipy>=1.10
-scikit-learn>=1.3

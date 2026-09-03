@@ -6,7 +6,7 @@
 - 只训练 finetune (单视图), 不训练 dualview
 - 保存到新路径 -v3, 不覆盖旧模型
 
-用法: python train_both_full.py
+用法: python train_finetune.py --modes finetune
 """
 import json, random, os, time, gc, argparse, sys
 import torch

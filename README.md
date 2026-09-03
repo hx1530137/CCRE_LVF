@@ -36,29 +36,15 @@ CCRE_LVF_code_release/
 ├── code/
 │   ├── lvf_algorithm.py              # Core LVF implementation and baselines
 │   ├── train_finetune.py             # LoRA fine-tuning entry point
-│   ├── train_both_full.py            # Fine-tune and dual-view training entry point
 │   ├── run_v3_experiments.py         # Main and cross-dataset experiments
 │   ├── run_ablation.py               # LVF component ablations
-│   ├── run_supplementary.py          # Metrics, significance, efficiency, sensitivity
-│   ├── run_supplementary_batches.py  # Additional supplementary experiments
-│   ├── run_fixes.py                  # Leakage-safe LR and reranking checks
-│   ├── run_all_models.py             # Embedding-model comparison
-│   ├── run_missing_models.py         # Additional model evaluations
-│   ├── run_experiments.py            # Earlier complete experiment pipeline
-│   ├── run_c3bench_experiment.py     # C3bench cross-language evaluation
-│   ├── build_c3bench_crosslang.py    # Reproducible C3bench sampling utility
-│   └── merge_all_models.py           # Result aggregation utility
+│   └── run_supplementary.py          # Final supplementary analyses
 ├── data/
 │   ├── README.md                     # Dataset access and schema
 │   └── dataset_description.md        # Dataset and split description
-└── results/
-    ├── README.md
-    ├── v3_main_results.json
-    ├── v3_cross_dataset_results.json
-    └── v3_ablation_results.json
 ```
 
-Only source code, documentation, and compact result summaries are included here. Raw datasets, model checkpoints, vector caches, and private manuscript files are intentionally not bundled.
+Only the core method, final experiment scripts, and essential documentation are included here. Raw datasets, model checkpoints, vector caches, intermediate scripts, result files, and private manuscript files are intentionally not bundled.
 
 ## Environment
 
@@ -121,9 +107,6 @@ After downloading the data and checkpoints and updating the path constants in th
 # Train the CCRE LoRA adapter (GPU; full training set)
 python code/train_finetune.py --modes finetune
 
-# Train the dual-view variant when required by the experiment
-python code/train_both_full.py --modes finetune,dual_view
-
 # Main test-set and cross-dataset evaluation
 python code/run_v3_experiments.py
 
@@ -132,10 +115,6 @@ python code/run_ablation.py
 
 # Supplementary metrics and analyses
 python code/run_supplementary.py
-python code/run_supplementary_batches.py
-
-# C3bench cross-language evaluation
-python code/run_c3bench_experiment.py --help
 ```
 
 Most experiment scripts read precomputed embedding caches and write JSON summaries to the configured output directory. The scripts print the active dataset, model, seed, and output paths at runtime. For a clean public release, replace the original absolute paths at the top of each script with repository-relative paths or command-line configuration.
@@ -163,12 +142,8 @@ The main evaluation reports Recall@1/5/10 and MRR; supplementary scripts additio
 1. Keep the documented random seed (`42`) and the paper's dataset sampling ratios.
 2. Use the same model revision and tokenizer for each comparison.
 3. Preserve the candidate cutoff (`top_k=100`) before fusion.
-4. Do not use test labels when fitting auxiliary baselines. The leakage-safe comparison is implemented in `run_fixes.py` and `run_supplementary_batches.py`.
+4. Do not use test labels when fitting auxiliary baselines.
 5. Record GPU model, CUDA version, package versions, and checkpoint identifiers in the final public release.
-
-## Results
-
-Compact JSON summaries from the latest v3 experiments are provided in [`results/`](results/). They are intended as reference outputs, not a replacement for rerunning the experiments with the released data and checkpoints.
 
 ## Citation
 
