@@ -1,19 +1,4 @@
-"""
-experiment_v3: 4B模型全量微调后的完整实验
-==========================================
-实验设计:
-  1. 主测试集对比: Base vs Finetune4B-2k(旧) vs Finetune4B-full-v3(新)
-     - 数据集: sanguo_test (1480查询/1023文档)
-     - 方法: BM25 / Vector / RRF / WAS / LVF
-  2. 跨数据集泛化性: Finetune4B-full-v3 在 史记/汉书/history-10k 上
-     - 方法: BM25 / Vector / WAS / LVF
-  3. 数据量消融: Finetune4B-2k vs Finetune4B-full-v3 (训练数据量影响)
-
-输出:
-  - experiment_v3/results/v3_main_results.json      (主测试集结果)
-  - experiment_v3/results/v3_cross_dataset_results.json (跨数据集结果)
-  - experiment_v3/results/v3_summary_tables.txt     (汇总表格)
-"""
+'Main and cross-dataset retrieval experiments.'
 import json, os, time, gc, math
 import torch
 import numpy as np
@@ -21,14 +6,14 @@ import numpy as np
 os.environ['TRITON_DISABLE_CUDA_KERNEL'] = '1'
 os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'
 
-# ============ 路径配置 ============
+
 MODELS_DIR   = '/home/huxin/Documents/trae_projects/sikuBERT/models'
 BASE_4B      = f'{MODELS_DIR}/Qwen3-Embedding-4B'
-FINETUNE_LORA_2K   = f'{MODELS_DIR}/qwen3-emb-finetune-4b-full'        # 旧模型(2000条)
-FINETUNE_LORA_V3   = f'{MODELS_DIR}/qwen3-emb-finetune-4b-full-v3'     # 新模型(12654条)
+FINETUNE_LORA_2K   = f'{MODELS_DIR}/qwen3-emb-finetune-4b-full'
+FINETUNE_LORA_V3   = f'{MODELS_DIR}/qwen3-emb-finetune-4b-full-v3'
 BGE_M3       = f'{MODELS_DIR}/bge-m3'
 
-# 数据集
+
 TEST_DATA    = '/home/huxin/Documents/trae_projects/sikuBERT/sanguo_test_filtered_final.json'
 SHIJI_DATA   = '/home/huxin/Documents/trae_projects/sikuBERT/史记合并-with-prompt-api-response-extracted-train.json'
 HANSHU_DATA  = '/home/huxin/Documents/trae_projects/sikuBERT/汉书合并mini-with-prompt-api-response-extracted-train.json'
@@ -38,14 +23,14 @@ OUTPUT_DIR   = '/home/huxin/Documents/trae_projects/sikuBERT/experiment_v3/resul
 CACHE_DIR    = '/home/huxin/Documents/trae_projects/sikuBERT/experiment_v3/cache'
 SEED = 42
 
-# 实验1: 主测试集 - 3个4B模型配置
+
 MAIN_MODELS = [
     ('Qwen3-4B-Base',       BASE_4B,           'hf',   512),
     ('Finetune4B-2k',       BASE_4B,           'lora2k', 512),
     ('Finetune4B-full-v3',  BASE_4B,           'lorav3', 512),
 ]
 
-# 实验2: 跨数据集 - 新模型+基线
+
 CROSS_MODELS = [
     ('bge-m3',              BGE_M3,            'st',    8192),
     ('Qwen3-4B-Base',       BASE_4B,           'hf',    512),
@@ -53,14 +38,13 @@ CROSS_MODELS = [
 ]
 
 CROSS_DATASETS = [
-    ('sanguo_test',  TEST_DATA,   1.0),   # 全量测试集
-    ('shiji',        SHIJI_DATA,   0.1),   # 1/10
-    ('hanshu',       HANSHU_DATA,  0.1),   # 1/10
-    ('history-10k',  HISTORY10K,   0.1),   # 1/10
+    ('sanguo_test',  TEST_DATA,   1.0),
+    ('shiji',        SHIJI_DATA,   0.1),
+    ('hanshu',       HANSHU_DATA,  0.1),
+    ('history-10k',  HISTORY10K,   0.1),
 ]
 
 
-# ==================== 数据加载 ====================
 def load_dataset(data_path, test_ratio=1.0, seed=42):
     with open(data_path, 'r', encoding='utf-8') as f:
         data = json.load(f)
@@ -82,7 +66,6 @@ def load_dataset(data_path, test_ratio=1.0, seed=42):
     return queries, doc_list, positive_indices
 
 
-# ==================== 指标 ====================
 def compute_metrics(topk_indices, positive_indices, k_values=[1, 3, 5]):
     n = len(topk_indices)
     m = {}
@@ -94,7 +77,6 @@ def compute_metrics(topk_indices, positive_indices, k_values=[1, 3, 5]):
     return m
 
 
-# ==================== BM25 ====================
 def build_bm25(documents):
     from rank_bm25 import BM25Okapi
     import jieba
@@ -111,7 +93,6 @@ def build_bm25(documents):
     return search_batch
 
 
-# ==================== 向量编码 ====================
 def encode_st(model_path, max_len):
     from sentence_transformers import SentenceTransformer
     model = SentenceTransformer(model_path, trust_remote_code=True, device='cuda')
@@ -231,7 +212,6 @@ def free_mem(model, tok=None):
     torch.cuda.empty_cache()
 
 
-# ==================== 检索/融合 ====================
 def vector_search(query_embs, doc_embs, top_k=100):
     import faiss
     index = faiss.IndexFlatIP(doc_embs.shape[1])
@@ -317,9 +297,7 @@ def rrf_fusion(bm25_idx, vec_idx, k=60, top_k=100):
 def lvf_fusion(bm25_indices, bm25_scores, vec_indices, vec_scores, queries, doc_bigrams,
                alpha_base=0.4, alpha_range=0.10, alpha_scale=20,
                gamma=0.3, delta=0.2, top_k=100):
-    """LVF: Lexical-Verified Fusion
-    LVF(d) = α(q)·ŝ_b(d) + (1-α(q))·ŝ_v(d) + γ·L(d) - δ·P(d)
-    """
+    'LVF: Lexical-Verified Fusion'
     n = len(bm25_indices)
     result = np.zeros((n, top_k), dtype=np.int32)
     for i in range(n):
@@ -344,7 +322,6 @@ def lvf_fusion(bm25_indices, bm25_scores, vec_indices, vec_scores, queries, doc_
     return result
 
 
-# ==================== 单模型评估 ====================
 def evaluate_one(queries, doc_list, positive_indices, doc_bigrams,
                  bm25_idx, bm25_sc, model_name, encode_type, model_path, max_len,
                  cache_suffix):
@@ -409,7 +386,6 @@ def evaluate_one(queries, doc_list, positive_indices, doc_bigrams,
     return results
 
 
-# ==================== 实验1: 主测试集 ====================
 def run_main_experiment():
     print('\n' + '=' * 100)
     print('实验1: 主测试集对比 (Base vs Finetune4B-2k vs Finetune4B-full-v3)')
@@ -440,7 +416,6 @@ def run_main_experiment():
     return all_results
 
 
-# ==================== 实验2: 跨数据集 ====================
 def run_cross_dataset_experiment():
     print('\n' + '=' * 100)
     print('实验2: 跨数据集泛化性 (Finetune4B-full-v3)')
@@ -476,14 +451,13 @@ def run_cross_dataset_experiment():
     return all_results
 
 
-# ==================== 汇总表格 ====================
 def print_summary(main_results, cross_results):
     lines = []
     lines.append('=' * 100)
     lines.append('experiment_v3 汇总: 4B模型全量微调实验结果')
     lines.append('=' * 100)
 
-    # 表1: 主测试集
+
     lines.append('\n表1: 主测试集 (sanguo_test, 1480查询/1023文档) - 数据量消融')
     lines.append(f'{"模型":<22} {"方法":<12} {"R@1":>8} {"R@5":>8} {"MRR":>8} {"ΔR@1(WAS)":>12}')
     lines.append('-' * 75)
@@ -497,7 +471,7 @@ def print_summary(main_results, cross_results):
             lines.append(f'{model if mi==0 else "":<22} {method:<12} {m["R@1"]:>8.4f} {m["R@5"]:>8.4f} {m["MRR"]:>8.4f} {gain:>12} {mark}')
         lines.append('-' * 75)
 
-    # 数据量消融对比
+
     lines.append('\n数据量消融: Finetune4B-2k vs Finetune4B-full-v3 (Vector R@1)')
     if 'Finetune4B-2k' in main_results and 'Finetune4B-full-v3' in main_results:
         v2k = main_results['Finetune4B-2k']['Vector']['R@1']
@@ -507,7 +481,7 @@ def print_summary(main_results, cross_results):
         lines.append(f'  Finetune4B-2k:     {v2k:.4f} (ΔBase={((v2k-base)*100):+.2f}%)')
         lines.append(f'  Finetune4B-full-v3:{vv3:.4f} (ΔBase={((vv3-base)*100):+.2f}%, Δ2k={((vv3-v2k)*100):+.2f}%)')
 
-    # 表2: 跨数据集
+
     lines.append('\n\n表2: 跨数据集泛化性 (LVF vs WAS, R@1)')
     lines.append(f'{"数据集":<16} {"模型":<22} {"WAS":>8} {"LVF":>8} {"ΔR@1":>10}')
     lines.append('-' * 70)
@@ -524,7 +498,6 @@ def print_summary(main_results, cross_results):
     return summary_text
 
 
-# ==================== 主流程 ====================
 def main():
     t0_all = time.time()
     os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -537,10 +510,10 @@ def main():
     print(f'测试集: sanguo_test(1480) / 史记(1/10) / 汉书(1/10) / history-10k(1/10)')
     print('=' * 100, flush=True)
 
-    # 实验1: 主测试集
+
     main_results = run_main_experiment()
 
-    # 保存
+
     with open(f'{OUTPUT_DIR}/v3_main_results.json', 'w', encoding='utf-8') as f:
         json.dump({
             'description': '主测试集对比: Base vs Finetune4B-2k vs Finetune4B-full-v3',
@@ -549,10 +522,10 @@ def main():
         }, f, ensure_ascii=False, indent=2)
     print(f'\n主测试集结果已保存: {OUTPUT_DIR}/v3_main_results.json', flush=True)
 
-    # 实验2: 跨数据集
+
     cross_results = run_cross_dataset_experiment()
 
-    # 保存
+
     with open(f'{OUTPUT_DIR}/v3_cross_dataset_results.json', 'w', encoding='utf-8') as f:
         json.dump({
             'description': '跨数据集泛化性: bge-m3 / Base / Finetune4B-full-v3',
@@ -561,7 +534,7 @@ def main():
         }, f, ensure_ascii=False, indent=2)
     print(f'\n跨数据集结果已保存: {OUTPUT_DIR}/v3_cross_dataset_results.json', flush=True)
 
-    # 汇总
+
     summary_text = print_summary(main_results, cross_results)
     with open(f'{OUTPUT_DIR}/v3_summary_tables.txt', 'w', encoding='utf-8') as f:
         f.write(summary_text)

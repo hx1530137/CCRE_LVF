@@ -1,13 +1,4 @@
-"""
-全量数据微调 Finetune4B 模型
-=============================
-- 训练数据: 全部 12654 条 (之前仅用 2000 条)
-- 查询与测试集无重叠 (sanguo_test 0/1480, zhengliban 0/500)
-- 只训练 finetune (单视图), 不训练 dualview
-- 保存到新路径 -v3, 不覆盖旧模型
-
-用法: python train_finetune.py --modes finetune
-"""
+'LoRA fine-tuning for the CCRE encoder.'
 import json, random, os, time, gc, argparse, sys
 import torch
 import torch.nn.functional as F
@@ -17,7 +8,7 @@ from peft import LoraConfig, get_peft_model
 os.environ['TRITON_DISABLE_CUDA_KERNEL'] = '1'
 os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'
 
-# ============ 配置 ============
+
 BASE_4B = '/home/huxin/Documents/trae_projects/sikuBERT/models/Qwen3-Embedding-4B'
 TRAIN_DATA_FINETUNE = '/home/huxin/Documents/trae_projects/sikuBERT/qwen3-emb-finetune/data/emb_train_data_clean_train.jsonl'
 TRAIN_DATA_DUALVIEW = '/home/huxin/Documents/trae_projects/sikuBERT/qwen3-emb-finetune/data/dual_view_emb_data_clean_train.jsonl'
@@ -31,7 +22,7 @@ LORA_DROPOUT = 0.05
 LORA_TARGETS = ['q_proj', 'k_proj', 'v_proj', 'o_proj']
 LR = 2e-4
 BATCH_SIZE = 2
-ACCUM_STEPS = 16      # 等效batch=32
+ACCUM_STEPS = 16
 EPOCHS = 1
 MAX_LENGTH = 512
 TEMPERATURE = 0.05
@@ -88,7 +79,7 @@ def train_epoch(model, tokenizer, train_data, val_data, device, mode, save_path)
             q_embs = get_last_token_emb(model(**q_inputs), q_inputs['attention_mask'])
             p_embs = get_last_token_emb(model(**p_inputs), p_inputs['attention_mask'])
             loss = info_nce_loss(q_embs, p_embs) / ACCUM_STEPS
-        else:  # dualview
+        else:
             queries = [item['messages'][0]['content'] for item in batch]
             guwen = [item['positive_messages'][0][0]['content'] for item in batch]
             xiandai = [item['positive_messages'][1][0]['content'] for item in batch]
@@ -120,7 +111,7 @@ def train_epoch(model, tokenizer, train_data, val_data, device, mode, save_path)
             elapsed = time.time() - t0
             print(f'  [{pct:.1f}%] Step {step_count}, Loss: {avg:.4f}, {elapsed:.0f}s', flush=True)
 
-    # 剩余梯度
+
     if (i // BATCH_SIZE + 1) % ACCUM_STEPS != 0:
         torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
         optimizer.step()
@@ -129,7 +120,7 @@ def train_epoch(model, tokenizer, train_data, val_data, device, mode, save_path)
     avg_train = total_loss / (len(train_data) // BATCH_SIZE + 1)
     print(f'\n  Train Loss: {avg_train:.4f}', flush=True)
 
-    # 验证
+
     model.eval()
     val_loss, vcount = 0, 0
     with torch.no_grad():
@@ -170,7 +161,7 @@ def train_epoch(model, tokenizer, train_data, val_data, device, mode, save_path)
 
 
 def train_one_mode(mode, device):
-    """训练单个模式"""
+    '训练单个模式'
     print('\n' + '=' * 70, flush=True)
     print(f'训练模式: {mode} | 全量数据 | 全量float16 + LoRA', flush=True)
     print(f'LoRA: r={LORA_R}, alpha={LORA_ALPHA}, target={LORA_TARGETS}', flush=True)
@@ -180,7 +171,7 @@ def train_one_mode(mode, device):
     random.seed(SEED)
     torch.manual_seed(SEED)
 
-    # 加载全部训练数据
+
     if mode == 'finetune':
         train_data = load_data(TRAIN_DATA_FINETUNE)
         val_data = load_data(VAL_DATA_FINETUNE)
@@ -190,7 +181,7 @@ def train_one_mode(mode, device):
 
     print(f'训练集(全部): {len(train_data)}, 验证集: {len(val_data)}', flush=True)
 
-    # 加载模型
+
     print('\n加载全量4B模型 (float16)...', flush=True)
     tokenizer = AutoTokenizer.from_pretrained(BASE_4B, trust_remote_code=True)
     model = AutoModel.from_pretrained(
@@ -200,7 +191,7 @@ def train_one_mode(mode, device):
     model.enable_input_require_grads()
     print('模型加载完成 (gradient checkpointing已启用)', flush=True)
 
-    # LoRA
+
     lora_config = LoraConfig(
         r=LORA_R, lora_alpha=LORA_ALPHA,
         target_modules=LORA_TARGETS,
@@ -208,7 +199,7 @@ def train_one_mode(mode, device):
     model = get_peft_model(model, lora_config)
     model.print_trainable_parameters()
 
-    # 训练 (保存到新路径 -v3, 不覆盖旧模型)
+
     save_name = f'qwen3-emb-{mode}-4b-full-v3'
     save_path = os.path.join(SAVE_DIR, save_name)
     print(f'\n开始训练 (保存到 {save_path})...', flush=True)
@@ -217,7 +208,7 @@ def train_one_mode(mode, device):
     elapsed = (time.time() - t0) / 60
     print(f'\n训练完成！Val Loss: {val_loss:.4f}, 耗时: {elapsed:.1f}分钟', flush=True)
 
-    # 释放显存
+
     del model, tokenizer
     gc.collect()
     torch.cuda.empty_cache()

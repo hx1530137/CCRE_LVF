@@ -1,17 +1,4 @@
-"""
-LVF 组件消融实验
-=================
-LVF(d) = α(q)·ŝ_b(d) + (1-α(q))·ŝ_v(d) + γ·L(d) - δ·P(d)
-
-消融配置:
-  1. WAS(baseline)      : 固定α=0.4, γ=0, δ=0
-  2. +Adaptive          : 自适应α(q), γ=0, δ=0
-  3. +Lexical           : 自适应α(q) + L(d), γ=0.3, δ=0
-  4. +Suspicion         : 自适应α(q) - P(d), γ=0, δ=0.2
-  5. LVF(full)          : 自适应α(q) + L(d) - P(d), γ=0.3, δ=0.2
-
-在4个数据集上对Finetune4B-full-v3做消融, 复用已有向量编码缓存
-"""
+'CCRE-LVF component ablation experiments.'
 import json, os, time, gc, math
 import torch
 import numpy as np
@@ -22,7 +9,7 @@ CACHE_DIR    = '/home/huxin/Documents/trae_projects/sikuBERT/experiment_v3/cache
 OUTPUT_DIR   = '/home/huxin/Documents/trae_projects/sikuBERT/experiment_v3/results'
 SEED = 42
 
-# 数据集配置 (与run_v3_experiments.py一致)
+
 DATASETS = [
     ('sanguo_test',  '/home/huxin/Documents/trae_projects/sikuBERT/sanguo_test_filtered_final.json',         1.0),
     ('shiji',        '/home/huxin/Documents/trae_projects/sikuBERT/史记合并-with-prompt-api-response-extracted-train.json', 0.1),
@@ -32,8 +19,7 @@ DATASETS = [
 
 MODEL_NAME = 'Finetune4B-full-v3'
 
-# 消融配置: (名称, alpha_base, alpha_range, gamma, delta)
-# alpha_range=0 表示固定alpha=alpha_base
+
 ABLATION_CONFIGS = [
     ('WAS(baseline)',    0.4,  0.0,  0.0,  0.0),
     ('+Adaptive-α',      0.4,  0.10, 0.0,  0.0),
@@ -43,7 +29,6 @@ ABLATION_CONFIGS = [
 ]
 
 
-# ==================== 数据加载 ====================
 def load_dataset(data_path, test_ratio=1.0, seed=42):
     with open(data_path, 'r', encoding='utf-8') as f:
         data = json.load(f)
@@ -73,7 +58,6 @@ def compute_metrics(topk_indices, positive_indices, k_values=[1, 3, 5]):
     return m
 
 
-# ==================== BM25 ====================
 def build_bm25(documents):
     from rank_bm25 import BM25Okapi
     import jieba
@@ -90,7 +74,6 @@ def build_bm25(documents):
     return search_batch
 
 
-# ==================== 融合工具 ====================
 def _minmax_normalize(candidates, score_map):
     n = len(candidates)
     present = [(j, score_map[c]) for j, c in enumerate(candidates) if c in score_map]
@@ -136,18 +119,10 @@ def compute_query_bigram_overlap(query, doc_bigrams):
     return overlap
 
 
-# ==================== 消融融合函数 ====================
 def ablation_fusion(bm25_indices, bm25_scores, vec_indices, vec_scores, queries, doc_bigrams,
                     alpha_base=0.4, alpha_range=0.10, alpha_scale=20,
                     gamma=0.3, delta=0.2, top_k=100):
-    """
-    统一消融融合函数:
-    score(d) = α(q)·ŝ_b(d) + (1-α(q))·ŝ_v(d) + γ·L(d) - δ·P(d)
-
-    α(q) = alpha_base + alpha_range·σ((margin_b - margin_v)·alpha_scale)  [alpha_range=0则固定α]
-    L(d) = bigram_overlap(q, d)                                            [gamma=0则关闭]
-    P(d) = ŝ_b(d) × ŝ_v(d)                                                [delta=0则关闭]
-    """
+    '统一消融融合函数:'
     n = len(bm25_indices)
     result = np.zeros((n, top_k), dtype=np.int32)
     for i in range(n):
@@ -157,7 +132,7 @@ def ablation_fusion(bm25_indices, bm25_scores, vec_indices, vec_scores, queries,
         b_norm = _minmax_normalize(candidates, bm25_map)
         v_norm = _minmax_normalize(candidates, vec_map)
 
-        # α(q): 查询自适应权重
+
         if alpha_range > 0:
             b_margin = _compute_margin(b_norm, 5)
             v_margin = _compute_margin(v_norm, 5)
@@ -166,14 +141,14 @@ def ablation_fusion(bm25_indices, bm25_scores, vec_indices, vec_scores, queries,
         else:
             alpha = alpha_base
 
-        # L(d): 词汇验证 (字符bigram重叠)
+
         if gamma > 0:
             bigram_overlap = compute_query_bigram_overlap(queries[i], doc_bigrams)
             L = np.array([bigram_overlap[c] if c < len(bigram_overlap) else 0 for c in candidates])
         else:
             L = np.zeros(len(candidates))
 
-        # P(d): 跨模态怀疑度
+
         if delta > 0:
             P = b_norm * v_norm
         else:
@@ -185,7 +160,6 @@ def ablation_fusion(bm25_indices, bm25_scores, vec_indices, vec_scores, queries,
     return result
 
 
-# ==================== 主流程 ====================
 def main():
     t0_all = time.time()
     os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -204,20 +178,20 @@ def main():
         queries, doc_list, pos_idx = load_dataset(ds_path, test_ratio=test_ratio, seed=SEED)
         print(f'  数据: {len(queries)} 查询, {len(doc_list)} 文档', flush=True)
 
-        # BM25
+
         print(f'  构建BM25 ...', end=' ', flush=True)
         t0 = time.time()
         bm25_search = build_bm25(doc_list)
         bm25_idx, bm25_sc = bm25_search(queries)
         print(f'{time.time()-t0:.1f}s', flush=True)
 
-        # bigram
+
         print(f'  预计算bigram ...', end=' ', flush=True)
         t0 = time.time()
         doc_bigrams = precompute_bigrams(doc_list)
         print(f'{time.time()-t0:.1f}s', flush=True)
 
-        # 加载向量编码缓存
+
         safe_name = MODEL_NAME.replace('/', '-').replace(' ', '_').replace('(', '').replace(')', '')
         doc_cache = f'{CACHE_DIR}/v3_{ds_name}_{safe_name}_docs.npy'
         q_cache   = f'{CACHE_DIR}/v3_{ds_name}_{safe_name}_queries.npy'
@@ -230,13 +204,13 @@ def main():
             print(f'  [错误] 缓存不存在: {doc_cache}', flush=True)
             continue
 
-        # 向量检索
+
         import faiss
         index = faiss.IndexFlatIP(doc_embs.shape[1])
         index.add(doc_embs.astype(np.float32))
         vec_scores, vec_indices = index.search(q_embs.astype(np.float32), 100)
 
-        # 也计算BM25和Vector的单独指标
+
         ds_results = {}
         m_bm25 = compute_metrics(bm25_idx, pos_idx)
         ds_results['BM25'] = m_bm25
@@ -245,7 +219,7 @@ def main():
         print(f'  BM25    R@1={m_bm25["R@1"]:.4f}', flush=True)
         print(f'  Vector  R@1={m_vec["R@1"]:.4f}', flush=True)
 
-        # 消融实验
+
         was_r1 = None
         for config_name, a_base, a_range, g, d in ABLATION_CONFIGS:
             idx = ablation_fusion(bm25_idx, bm25_sc, vec_indices, vec_scores, queries, doc_bigrams,
@@ -263,7 +237,7 @@ def main():
 
         all_results[ds_name] = ds_results
 
-    # 保存结果
+
     out_path = f'{OUTPUT_DIR}/v3_ablation_results.json'
     with open(out_path, 'w', encoding='utf-8') as f:
         json.dump({
@@ -278,7 +252,7 @@ def main():
         }, f, ensure_ascii=False, indent=2)
     print(f'\n消融结果已保存: {out_path}', flush=True)
 
-    # 打印汇总表
+
     print('\n' + '=' * 100)
     print('LVF 组件消融实验汇总 (R@1)')
     print('=' * 100)

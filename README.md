@@ -38,7 +38,8 @@ CCRE_LVF_code_release/
 │   ├── train_finetune.py             # LoRA fine-tuning entry point
 │   ├── run_v3_experiments.py         # Main and cross-dataset experiments
 │   ├── run_ablation.py               # LVF component ablations
-│   └── run_supplementary.py          # Final supplementary analyses
+│   ├── run_supplementary.py          # Final supplementary analyses
+│   └── evaluation.py                 # Standalone ranking evaluation
 ├── data/
 │   ├── README.md                     # Dataset access and schema
 │   └── dataset_description.md        # Dataset and split description
@@ -115,6 +116,13 @@ python code/run_ablation.py
 
 # Supplementary metrics and analyses
 python code/run_supplementary.py
+
+# Evaluate saved rankings (JSON or NPY)
+python code/evaluation.py \
+  --rankings path/to/rankings.json \
+  --relevant path/to/relevant_indices.json \
+  --k 1 5 10 \
+  --output metrics.json
 ```
 
 Most experiment scripts read precomputed embedding caches and write JSON summaries to the configured output directory. The scripts print the active dataset, model, seed, and output paths at runtime. For a clean public release, replace the original absolute paths at the top of each script with repository-relative paths or command-line configuration.
@@ -136,6 +144,8 @@ Most experiment scripts read precomputed embedding caches and write JSON summari
 | Random seed | 42 |
 
 The main evaluation reports Recall@1/5/10 and MRR; supplementary scripts additionally compute nDCG@10, paired significance tests, efficiency, hyperparameter sensitivity, RRF-k comparisons, and case studies.
+
+The standalone evaluator accepts one ranked document-index list per query and either one relevant document index or a list of relevant indices per query.
 
 ## Reproducibility Notes
 

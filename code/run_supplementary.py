@@ -1,15 +1,4 @@
-"""
-论文补充实验: 支撑论文发表的完整实验
-=====================================
-1. nDCG@10 指标 (补充排序质量评估)
-2. 统计显著性检验 (配对t检验, LVF vs WAS/RRF)
-3. 效率/延迟分析 (各方法推理时间)
-4. 超参数敏感性分析 (γ/δ/α_range参数扫描)
-5. RRF不同k值对比 (k=1,10,30,60,100)
-6. Case Study (成功/失败案例)
-
-复用已有向量编码缓存, 只需重新计算融合和指标
-"""
+'Supplementary evaluation and analysis routines.'
 import json, os, time, math
 import numpy as np
 from scipy import stats
@@ -27,7 +16,6 @@ DATASETS = [
 MODEL_NAME = 'Finetune4B-full-v3'
 
 
-# ==================== 数据加载 ====================
 def load_dataset(data_path, test_ratio=1.0, seed=42):
     with open(data_path, 'r', encoding='utf-8') as f:
         data = json.load(f)
@@ -46,7 +34,6 @@ def load_dataset(data_path, test_ratio=1.0, seed=42):
     return queries, doc_list, positive_indices
 
 
-# ==================== 指标计算 ====================
 def compute_recall_at_k(topk_indices, positive_indices, k_values=[1, 3, 5, 10]):
     n = len(topk_indices)
     m = {}
@@ -67,12 +54,7 @@ def compute_mrr(topk_indices, positive_indices):
 
 
 def compute_ndcg_at_k(topk_indices, positive_indices, k=10):
-    """
-    nDCG@k (二元相关性: 正确文档rel=1, 其他rel=0)
-    DCG@k = sum(rel_i / log2(i+1)) for i=1..k
-    IDCG@k = 1/log2(2) = 1.0 (理想情况: 正确文档在第1位)
-    nDCG@k = DCG@k / IDCG@k
-    """
+    'nDCG@k (二元相关性: 正确文档rel=1, 其他rel=0)'
     n = len(topk_indices)
     total = 0
     for i in range(n):
@@ -80,20 +62,20 @@ def compute_ndcg_at_k(topk_indices, positive_indices, k=10):
         dcg = 0
         for rank, doc_idx in enumerate(topk):
             if doc_idx == positive_indices[i]:
-                dcg += 1.0 / math.log2(rank + 2)  # rank从0开始, +2因为log2(1)=0
-        idcg = 1.0  # 只有一个相关文档, 理想位置为第1位: 1/log2(2)=1.0
+                dcg += 1.0 / math.log2(rank + 2)
+        idcg = 1.0
         total += dcg / idcg
     return total / n
 
 
 def compute_per_query_hit(topk_indices, positive_indices, k=1):
-    """返回每个查询是否命中(top-k), 用于统计显著性检验"""
+    '返回每个查询是否命中(top-k), 用于统计显著性检验'
     return np.array([1 if positive_indices[i] in topk_indices[i][:k] else 0
                      for i in range(len(topk_indices))])
 
 
 def paired_t_test(method_a_hits, method_b_hits, method_a_name, method_b_name):
-    """配对t检验"""
+    '配对t检验'
     diff = method_a_hits - method_b_hits
     if np.std(diff) == 0:
         return {'t_statistic': 0, 'p_value': 1.0, 'mean_diff': 0, 'significant': False}
@@ -110,7 +92,6 @@ def paired_t_test(method_a_hits, method_b_hits, method_a_name, method_b_name):
     }
 
 
-# ==================== BM25 ====================
 def build_bm25(documents):
     from rank_bm25 import BM25Okapi
     import jieba
@@ -127,7 +108,6 @@ def build_bm25(documents):
     return search_batch
 
 
-# ==================== 融合工具 ====================
 def _minmax_normalize(candidates, score_map):
     n = len(candidates)
     present = [(j, score_map[c]) for j, c in enumerate(candidates) if c in score_map]
@@ -240,14 +220,13 @@ def lvf_fusion(bm25_indices, bm25_scores, vec_indices, vec_scores, queries, doc_
 
 
 def evaluate_all_metrics(topk_indices, positive_indices):
-    """计算全套指标: R@1/3/5/10, MRR, nDCG@10"""
+    '计算全套指标: R@1/3/5/10, MRR, nDCG@10'
     m = compute_recall_at_k(topk_indices, positive_indices)
     m['MRR'] = compute_mrr(topk_indices, positive_indices)
     m['nDCG@10'] = compute_ndcg_at_k(topk_indices, positive_indices, 10)
     return m
 
 
-# ==================== 实验1: nDCG@10 + 统计显著性 ====================
 def run_metrics_and_significance(all_data):
     print('\n' + '=' * 100)
     print('实验1: nDCG@10指标 + 统计显著性检验')
@@ -258,7 +237,7 @@ def run_metrics_and_significance(all_data):
         print(f'\n  ---- {ds_name} ----', flush=True)
         ds_result = {}
 
-        # 计算各方法的指标
+
         methods = {
             'BM25': bm25_idx,
             'Vector': vec_idx,
@@ -273,7 +252,7 @@ def run_metrics_and_significance(all_data):
             print(f'    {name:<10} R@1={m["R@1"]:.4f} R@5={m["R@5"]:.4f} R@10={m["R@10"]:.4f} '
                   f'MRR={m["MRR"]:.4f} nDCG@10={m["nDCG@10"]:.4f}', flush=True)
 
-        # 统计显著性检验: LVF vs WAS, LVF vs RRF (R@1层面的配对t检验)
+
         lvf_hits_1 = compute_per_query_hit(methods['LVF'], pos_idx, k=1)
         was_hits_1 = compute_per_query_hit(methods['WAS'], pos_idx, k=1)
         rrf_hits_1 = compute_per_query_hit(methods['RRF'], pos_idx, k=1)
@@ -293,7 +272,6 @@ def run_metrics_and_significance(all_data):
     return results
 
 
-# ==================== 实验2: 效率/延迟分析 ====================
 def run_efficiency_analysis(all_data):
     print('\n' + '=' * 100)
     print('实验2: 效率/延迟分析')
@@ -302,12 +280,12 @@ def run_efficiency_analysis(all_data):
     results = {}
     for ds_name, queries, doc_list, pos_idx, doc_bigrams, bm25_idx, bm25_sc, vec_idx, vec_sc in all_data:
         print(f'\n  ---- {ds_name} ({len(queries)} 查询) ----', flush=True)
-        n_subset = min(200, len(queries))  # 取200查询测延迟
+        n_subset = min(200, len(queries))
         idx_subset = list(range(n_subset))
 
         timings = {}
 
-        # BM25检索时间
+
         from rank_bm25 import BM25Okapi
         import jieba
         tokenized = [list(jieba.cut(doc)) for doc in doc_list]
@@ -315,9 +293,9 @@ def run_efficiency_analysis(all_data):
         t0 = time.time()
         for i in idx_subset:
             sc = bm25.get_scores(list(jieba.cut(queries[i])))
-        timings['BM25_search'] = (time.time() - t0) / n_subset * 1000  # ms/query
+        timings['BM25_search'] = (time.time() - t0) / n_subset * 1000
 
-        # 向量检索时间 (FAISS)
+
         import faiss
         safe_name = MODEL_NAME.replace('/', '-').replace(' ', '_').replace('(', '').replace(')', '')
         doc_embs = np.load(f'{CACHE_DIR}/v3_{ds_name}_{safe_name}_docs.npy')
@@ -329,7 +307,7 @@ def run_efficiency_analysis(all_data):
             index.search(q_embs[i:i+1].astype(np.float32), 100)
         timings['Vector_search'] = (time.time() - t0) / n_subset * 1000
 
-        # 融合方法时间
+
         bm25_idx_sub = bm25_idx[idx_subset]
         bm25_sc_sub = bm25_sc[idx_subset]
         vec_idx_sub = vec_idx[idx_subset]
@@ -360,19 +338,18 @@ def run_efficiency_analysis(all_data):
     return results
 
 
-# ==================== 实验3: 超参数敏感性 ====================
 def run_hyperparam_sensitivity(all_data):
     print('\n' + '=' * 100)
     print('实验3: 超参数敏感性分析')
     print('=' * 100, flush=True)
 
-    # 只在sanguo_test上做 (代表性数据集)
+
     ds_name, queries, doc_list, pos_idx, doc_bigrams, bm25_idx, bm25_sc, vec_idx, vec_sc = all_data[0]
     print(f'\n  数据集: {ds_name}', flush=True)
 
     results = {'gamma_sweep': {}, 'delta_sweep': {}, 'alpha_range_sweep': {}}
 
-    # γ扫描 (词汇验证权重)
+
     print(f'\n  --- γ (词汇验证权重) 扫描 ---', flush=True)
     for gamma in [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6]:
         idx = lvf_fusion(bm25_idx, bm25_sc, vec_idx, vec_sc, queries, doc_bigrams,
@@ -381,7 +358,7 @@ def run_hyperparam_sensitivity(all_data):
         results['gamma_sweep'][gamma] = m['R@1']
         print(f'    γ={gamma:.1f}  R@1={m["R@1"]:.4f}', flush=True)
 
-    # δ扫描 (跨模态怀疑度权重)
+
     print(f'\n  --- δ (跨模态怀疑度) 扫描 ---', flush=True)
     for delta in [0.0, 0.1, 0.2, 0.3, 0.4, 0.5]:
         idx = lvf_fusion(bm25_idx, bm25_sc, vec_idx, vec_sc, queries, doc_bigrams,
@@ -390,7 +367,7 @@ def run_hyperparam_sensitivity(all_data):
         results['delta_sweep'][delta] = m['R@1']
         print(f'    δ={delta:.1f}  R@1={m["R@1"]:.4f}', flush=True)
 
-    # α_range扫描 (自适应范围)
+
     print(f'\n  --- α_range (自适应范围) 扫描 ---', flush=True)
     for alpha_range in [0.0, 0.05, 0.10, 0.15, 0.20, 0.25]:
         idx = lvf_fusion(bm25_idx, bm25_sc, vec_idx, vec_sc, queries, doc_bigrams,
@@ -399,7 +376,7 @@ def run_hyperparam_sensitivity(all_data):
         results['alpha_range_sweep'][alpha_range] = m['R@1']
         print(f'    α_range={alpha_range:.2f}  R@1={m["R@1"]:.4f}', flush=True)
 
-    # 二维网格: γ × δ
+
     print(f'\n  --- γ × δ 二维网格 ---', flush=True)
     grid = {}
     for gamma in [0.1, 0.2, 0.3, 0.4, 0.5]:
@@ -409,7 +386,7 @@ def run_hyperparam_sensitivity(all_data):
             m = compute_recall_at_k(idx, pos_idx)
             grid[f'g{gamma}_d{delta}'] = m['R@1']
     results['gamma_delta_grid'] = grid
-    # 找最优
+
     best_key = max(grid, key=grid.get)
     print(f'    最优组合: {best_key} R@1={grid[best_key]:.4f}', flush=True)
     print(f'    默认组合(g0.3_d0.2) R@1={grid["g0.3_d0.2"]:.4f}', flush=True)
@@ -417,7 +394,6 @@ def run_hyperparam_sensitivity(all_data):
     return results
 
 
-# ==================== 实验4: RRF不同k值 ====================
 def run_rrf_k_comparison(all_data):
     print('\n' + '=' * 100)
     print('实验4: RRF不同k值对比')
@@ -433,7 +409,7 @@ def run_rrf_k_comparison(all_data):
             ds_result[f'k={k}'] = m['R@1']
             print(f'    RRF k={k:<4}  R@1={m["R@1"]:.4f}', flush=True)
 
-        # 对比LVF
+
         idx = lvf_fusion(bm25_idx, bm25_sc, vec_idx, vec_sc, queries, doc_bigrams)
         m = compute_recall_at_k(idx, pos_idx)
         ds_result['LVF'] = m['R@1']
@@ -444,7 +420,6 @@ def run_rrf_k_comparison(all_data):
     return results
 
 
-# ==================== 实验5: Case Study ====================
 def run_case_study(all_data):
     print('\n' + '=' * 100)
     print('实验5: Case Study (成功/失败案例)')
@@ -458,11 +433,11 @@ def run_case_study(all_data):
     was_hits = compute_per_query_hit(was_idx, pos_idx, k=1)
     lvf_hits = compute_per_query_hit(lvf_idx, pos_idx, k=1)
 
-    # LVF成功但WAS失败的案例
+
     lvf_win = np.where((lvf_hits == 1) & (was_hits == 0))[0]
-    # LVF失败但WAS成功的案例
+
     was_win = np.where((lvf_hits == 0) & (was_hits == 1))[0]
-    # 两者都失败的案例
+
     both_fail = np.where((lvf_hits == 0) & (was_hits == 0))[0]
 
     cases = {'lvf_wins': [], 'was_wins': [], 'both_fail': []}
@@ -512,7 +487,6 @@ def run_case_study(all_data):
     return cases
 
 
-# ==================== 主流程 ====================
 def main():
     t0_all = time.time()
     os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -523,7 +497,7 @@ def main():
     print(f'数据集: {[d[0] for d in DATASETS]}')
     print('=' * 100, flush=True)
 
-    # 预加载数据和缓存
+
     all_data = []
     for ds_name, ds_path, test_ratio in DATASETS:
         print(f'\n加载 {ds_name} ...', end=' ', flush=True)
@@ -546,37 +520,37 @@ def main():
         all_data.append((ds_name, queries, doc_list, pos_idx, doc_bigrams, bm25_idx, bm25_sc, vec_indices, vec_scores))
         print(f'{len(queries)}查询, {len(doc_list)}文档', flush=True)
 
-    # 实验1: nDCG@10 + 显著性检验
+
     metrics_results = run_metrics_and_significance(all_data)
     with open(f'{OUTPUT_DIR}/supplementary_metrics.json', 'w', encoding='utf-8') as f:
         json.dump({'description': 'nDCG@10指标 + 配对t检验', 'results': metrics_results},
                   f, ensure_ascii=False, indent=2)
 
-    # 实验2: 效率分析
+
     efficiency_results = run_efficiency_analysis(all_data)
     with open(f'{OUTPUT_DIR}/supplementary_efficiency.json', 'w', encoding='utf-8') as f:
         json.dump({'description': '效率/延迟分析 (ms/query)', 'results': efficiency_results},
                   f, ensure_ascii=False, indent=2)
 
-    # 实验3: 超参数敏感性
+
     hyperparam_results = run_hyperparam_sensitivity(all_data)
     with open(f'{OUTPUT_DIR}/supplementary_hyperparam.json', 'w', encoding='utf-8') as f:
         json.dump({'description': '超参数敏感性分析', 'results': hyperparam_results},
                   f, ensure_ascii=False, indent=2)
 
-    # 实验4: RRF k值对比
+
     rrf_results = run_rrf_k_comparison(all_data)
     with open(f'{OUTPUT_DIR}/supplementary_rrf_k.json', 'w', encoding='utf-8') as f:
         json.dump({'description': 'RRF不同k值对比', 'results': rrf_results},
                   f, ensure_ascii=False, indent=2)
 
-    # 实验5: Case Study
+
     case_results = run_case_study(all_data)
     with open(f'{OUTPUT_DIR}/supplementary_case_study.json', 'w', encoding='utf-8') as f:
         json.dump({'description': 'Case Study: 成功/失败案例', 'results': case_results},
                   f, ensure_ascii=False, indent=2)
 
-    # 汇总打印
+
     print('\n' + '=' * 100)
     print('补充实验汇总')
     print('=' * 100)
