@@ -1,0 +1,13 @@
+cff-version: 1.2.0
+message: "Please cite the CCRE-LVF paper when using this code. Replace the placeholders before public release."
+title: "CCRE-LVF: Domain-Adapted Dense Retrieval with Lexically Verified Adaptive Fusion for Modern-to-Classical Chinese Historical Retrieval"
+type: software
+version: "1.0.0"
+date-released: 2026-09-03
+authors:
+  - family-names: "REPLACE_WITH_SURNAME"
+    given-names: "REPLACE_WITH_GIVEN_NAME"
+    orcid: "https://orcid.org/0000-0000-0000-0000"
+repository-code: "https://github.com/hx1530137/CCRE_LVF"
+license: "REPLACE_WITH_LICENSE"
+doi: "https://doi.org/REPLACE_WITH_DOI"
